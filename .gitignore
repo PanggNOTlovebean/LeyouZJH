@@ -1,0 +1,17 @@
+*.log
+test/
+test_run/
+__*/
+垃圾/
+mp/
+build/
+app*
+dist*/
+packages/
+record*/
+*.profile
+record.txt
+runfile/
+.pyarmor
+Tesseract-OCR/
+.paddleocr/
