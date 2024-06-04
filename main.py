@@ -10,6 +10,7 @@ from processor import ImageProcessor
 from email_driver import send_email
 from common import VERSION
 import multiprocessing
+import numpy as np
 
 logger = init_logger("Money Printer")
 TEST_SCREENSHOT_CONFIG = False
@@ -54,6 +55,8 @@ class Game:
         self.__init__()
 
     def is_run(self):
+        if self.run == False:
+            self.clear()
         return self.run
 
     def end(self):
@@ -143,7 +146,7 @@ class Game:
     # 判断是否存在看牌加注
     def check_look_add(self):
         for i in range(4):
-            if self.player_status[i] == PlayerStatusEnum.LOOKED and self.add[i] > 0 and self.pk[i] == False:
+            if self.player_status[i] == PlayerStatusEnum.LOOKED and (self.add[i] > 0 or self.next_bets[i] > 2) and self.pk[i] == False:
                 if self.bets[i] <= 3: 
                     continue
                 return True
@@ -162,7 +165,7 @@ class Game:
     def check_look(self):
         self.find_look = [False for _ in range(4)]
         for i in range(4):
-            if self.player_status[i] == PlayerStatusEnum.LOOKED and self.bets[i] > 1:
+            if self.player_status[i] == PlayerStatusEnum.LOOKED and self.bets[i] > 2 and self.pk[i] == False:
                 self.find_look[i] = True
         return any(self.find_look)
     
@@ -272,6 +275,30 @@ class Game:
             self.player_money[i] = player_money_list[i]
         print(self)
         
+    def double_update(self, tot_bet):
+        cur_tot = 1
+        for i in range(4):
+            if self.player_status[i] != PlayerStatusEnum.NONE:
+                cur_tot += self.bets[i]
+        
+        for i in [1, 0, 2, 3]:
+            if cur_tot == tot_bet:
+                break
+            if self.player_status[i] == PlayerStatusEnum.NONE or self.player_status[i] == PlayerStatusEnum.ABANDON:
+                continue
+            
+            gap = self.my_next_bet * 2 if self.player_status[i] == PlayerStatusEnum.LOOKED else self.my_next_bet
+            cur_tot -= self.bets[i]
+            self.bets[i] = 1 + gap
+            cur_tot += self.bets[i]
+            if gap > self.next_bets[i]:
+                self.next_bets[i] = gap
+                if self.player_status[i] == PlayerStatusEnum.LOOKED:
+                    self.add[i] += 1 if gap > 2 else 0
+                else:
+                    self.add[i] += 1
+        print(f'总下注{tot_bet}','=' * 10 +  '首次出牌前修复数据' + '=' * 10 + '\n', self)
+        
     def __str__(self):
         current_status = []
         current_status = []
@@ -317,6 +344,7 @@ class MoneyPrinter:
         self.record = []
         self.rank = 0
         self.retry_time = 3
+        self.money = 0
 
     def save_image(self, name="run"):
 
@@ -352,17 +380,126 @@ class MoneyPrinter:
             print(f"上限降级处理, 当前盈利上限{self.max_earn}")
         else:
             self.max_earn = min(self.max_earn, config.get_max_earn())
-        # x = time_diff.total_seconds() / 60
 
-        # if 0 <= x < 60:
-        #     y = 180 - 0.33 * x
-        # elif 60 <= x <= 120:
-        #     y = 160 - 0.66 * (x - 60)
-        # else:
-        #     y = 125
-        # self.max_earn = y
         print(f"目标盈利 {self.max_earn}")
+        
+    def get_image(self):
+            # List all files in the directory
+        base_dir = "test_run/5"
+        filenames = os.listdir(base_dir)
+        
+        # Sort the filenames to ensure a consistent order
+        filenames.sort()
+        
+        for filename in filenames:
+            screenshot_path = os.path.join(base_dir, filename)
+            print(screenshot_path)
+            image = cv2.imdecode(np.fromfile(screenshot_path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+            # image = cv2.imread(screenshot_path, cv2.IMREAD_UNCHANGED)
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            yield image
 
+    def run_epoch(self):
+        # image_generator  = self.get_image()
+        # self.image = next(image_generator)
+        while (self.game.is_run() and self.processor.check_game_status(self.image) != GameStatusEnum.STOP):
+            self.image = self.window.screenshot()
+            # self.image = next(image_generator)
+            self.save_image()                
+            game_status = self.processor.check_game_status(self.image)
+        
+            print(f"当前游戏状态: {game_status.value} ")
+
+            if game_status == GameStatusEnum.PK:
+                continue
+            print(f"获取玩家状态...")
+            
+            
+            player_status_list = self.processor.get_players_status(self.image)
+            player_money_list = self.processor.get_player_money(self.image)
+            self.game.my_next_bet = self.processor.get_next_bet(self.image)
+            self.game.update(player_money_list, player_status_list)
+            if game_status == GameStatusEnum.MYTURN:
+                if self.game.run == False:
+                    break
+                self.game.round += 1
+                if (self.game.round == 1):
+                    # 第一回合 需要二次更新避免没有截图到
+                    tot_bet = self.processor.get_tot_bet(self.image)
+                    self.game.double_update(tot_bet)
+                # 轮到自己回合
+                print(f"==========我的回合==========")
+                print(self.game)
+
+                self.save_image()
+
+                #  如果已经看过牌了
+                if self.game.looked:
+                    if self.game.infinity_follow:
+                        if self.game.my_next_bet >= 14:
+                            self.compare()
+                            self.game.end()
+                        else:
+                            self.add_bet()
+                                
+                    if self.game.max_follow <= 0:
+                        if DEBUG_MODE:
+                            logger.info(f"【触发逻辑】看过牌 且跟牌次数达到 需要[比牌]")
+                        self.compare()
+                        self.game.end()
+                    else:
+                        if DEBUG_MODE:
+                            logger.info(f"【触发逻辑】看过牌 跟牌次数没有达到 继续[跟牌]")
+                        self.follow()
+                        continue
+                                            
+                if self.game.check_look_add():
+                    self.look_card()
+                    continue
+                
+                if self.game.max_follow <= 0:
+
+                    # 二次检查是否是常规状态
+                    if (
+                        self.game.count_looked() == 0
+                        and self.game.looked == False
+                        and self.game.count_add() == 0
+                    ):
+                        logger.info(f"【触发逻辑】 正常跟牌")
+                        self.game.max_follow = 999
+                        self.follow()
+                        continue
+                    
+                    if self.game.find_look_flag:
+                        for i in range(4):
+                            if (
+                                self.game.find_look[i] == True
+                                and self.game.player_status[i]
+                                != PlayerStatusEnum.LOOKED
+                            ):
+                                self.game.find_look[i] = False
+                        if any(self.game.find_look) == False:
+                            logger.info(f"【触发逻辑】原来看牌那个挂了 重新计算")
+                            self.game.find_look_flag = False
+                            self.game.max_follow = 999
+                            continue
+
+                    if DEBUG_MODE:
+                        logger.info(f"【触发逻辑】跟注次数达到上限 需要[看牌]")
+                    self.look_card()
+                    continue
+                
+                if self.game.check_look():
+                    if DEBUG_MODE:
+                        logger.info(f"【触发逻辑】有人看牌 需要[再跟一次]")
+                    self.follow()
+                    self.game.find_look_flag = True
+                    self.game.max_follow = 0
+                    continue
+
+                logger.info(f"【触发逻辑】正常跟注")
+                self.follow()
+                        
     def run_pro(self):
         self.image = self.window.screenshot()
 
@@ -378,20 +515,18 @@ class MoneyPrinter:
             game_status = self.processor.check_game_status(self.image)
             self.save_image()
             if game_status == GameStatusEnum.STOP:
+                while (self.processor.check_is_auto(self.image)):
+                    print("关闭自动匹配")
+                    self.window.click(PositionConstant.CANCEL_AUTO_POS)
+                    self.image = self.window.screenshot()
                 sleep(0.5)
                 self.image = self.window.screenshot()
                 game_status = self.processor.check_game_status(self.image)
                 if game_status != GameStatusEnum.STOP:
                     continue
                 money = self.processor.get_money(self.image)
-                # if float(money) < 0:
-                #     continue
-                # if str(money) == "7.0":
-                #     continue
-                # if float(money) > 0 and (
-                #     len(self.record) == 0 or str(money) != str(self.record[-1])
-                # ):
-                #     self.record.append(float(money))
+                self.money = money if money != -1 else money
+                money = self.money
                 print(
                     f"当前状态：{GameStatusEnum.STOP.value}, 当前金币:{money}, 将要执行操作: 进入游戏  等待1s"
                 )
@@ -465,133 +600,8 @@ class MoneyPrinter:
                 # self.window.click(PositionConstant.BUG_POS)
                 self.window.click(PositionConstant.START_CLICK_POS)
             else:
-                while (
-                    self.game.is_run()
-                    and self.processor.check_game_status(self.image)
-                    != GameStatusEnum.STOP
-                ):
-                    self.image = self.window.screenshot()
-                    self.save_image()
-                    for i in range(5):
-                        if self.image.size != 0:
-                            break
-                        sleep(0.1)
-                        self.image = self.window.screenshot()                     
-
-                    game_status = self.processor.check_game_status(self.image)
+                self.run_epoch()
                 
-                    print(f"当前游戏状态: {game_status.value} ")
-
-                    if game_status == GameStatusEnum.PK:
-                        continue
-                    print(f"获取玩家状态...")
-                    
-                    
-                    player_status_list = self.processor.get_players_status(self.image)
-                    player_money_list = self.processor.get_player_money(self.image)
-                    self.game.my_next_bet = self.processor.get_next_bet(self.image)
-                        
-                    # print("玩家状态:", player_status_list)
-                    # print("玩家金额:", player_money_list)
-                    self.game.update(player_money_list, player_status_list)
-
-                    if game_status == GameStatusEnum.MYTURN:
-                        if self.game.run == False:
-                            break
-                        # 多次检查下注 防止被pk场景遮盖
-                        
-                        self.game.round += 1
-                        # 轮到自己回合
-                        print(f"==========我的回合==========")
-                        print(self.game)
-
-                        self.save_image()
-
-                        #  如果已经看过牌了
-                        if self.game.looked:
-                            if self.game.infinity_follow:
-                                if self.game.my_next_bet >= 14:
-                                    self.compare()
-                                    self.game.end()
-                                else:
-                                    self.add_bet()
-                                        
-                            if self.game.max_follow <= 0:
-                                if DEBUG_MODE:
-                                    logger.info(f"【触发逻辑】看过牌 且跟牌次数达到 需要[比牌]")
-                                self.compare()
-                                self.game.end()
-                            else:
-                                if DEBUG_MODE:
-                                    logger.info(f"【触发逻辑】看过牌 跟牌次数没有达到 继续[跟牌]")
-                                self.follow()
-                                continue
-                            
-                        
-                        
-                        if self.game.check_look_add():
-                            self.look_card()
-                            continue
-                        
-                        if self.game.check_pk_win():
-                            if DEBUG_MODE:
-                                logger.info(f"【触发逻辑】有玩家看牌比牌胜利 需要[跟牌]")
-                            self.follow()                         
-                            self.game.pk = [False for _ in range(4)]
-                            # -100代表进入
-                            self.game.max_follow = -100
-                            continue
-                        
-                        
-                        if self.game.max_follow <= 0:
-
-                            # 二次检查是否是常规状态
-                            if (
-                                self.game.count_looked() == 0
-                                and self.game.looked == False
-                                and self.game.count_add() == 0
-                            ):
-                                logger.info(f"【触发逻辑】 正常跟牌")
-                                self.game.max_follow = 999
-                                self.follow()
-                                continue
-                            
-                            if self.game.find_look_flag:
-                                for i in range(4):
-                                    if (
-                                        self.game.find_look[i] == True
-                                        and self.game.player_status[i]
-                                        != PlayerStatusEnum.LOOKED
-                                    ):
-                                        self.game.find_look[i] = False
-                                if any(self.game.find_look) == False:
-                                    logger.info(f"【触发逻辑】原来看牌那个挂了 重新计算")
-                                    self.game.find_look_flag = False
-                                    self.game.max_follow = 999
-                                    continue
-
-                            # if self.game.count_looked() == 0:
-                            #     if DEBUG_MODE:
-                            #         logger.info(f"【触发逻辑】 当前是闷牌 直接比牌")
-                            #     self.compare()
-                            #     continue
-
-                            if DEBUG_MODE:
-                                logger.info(f"【触发逻辑】跟注次数达到上限 需要[看牌]")
-                            self.look_card()
-                            continue
-                        
-                        if self.game.check_look():
-                            if DEBUG_MODE:
-                                logger.info(f"【触发逻辑】有人看牌 需要[再跟一次]")
-                            self.follow()
-                            self.game.find_look_flag = True
-                            self.game.max_follow = 0
-                            continue
-
-                        logger.info(f"【触发逻辑】正常跟注")
-                        self.follow()
-
     def follow(self):
         # 兜底检查跟注标志 防止点成自动跟注
         if self.processor.follow_check(self.image):
@@ -600,6 +610,7 @@ class MoneyPrinter:
             self.game.max_follow -= 1
             print(f"执行操作：跟牌")
             money = self.processor.get_money(self.image)
+            self.money = money if money != -1 else self.money
             print(f"当前金币{money}")
             if money > 0 and money < self.game.my_next_bet:
                 print(f"钱不够了 执行操作：比牌")
@@ -622,7 +633,7 @@ class MoneyPrinter:
             sleep(0.25)
             retry_time -= 1
             if retry_time == 0:
-                self.save_image(name="bug", write=True)
+                # self.save_image(name="bug", write=True)
                 break
 
         # self.save_image(name="look", write=True)
@@ -697,7 +708,9 @@ class MoneyPrinter:
         self.game.bet += 7
         print(f"执行操作：加注(最大)")
 
-
+    def run_test(self):
+        pass
+    
 def main():
     try:
         login()

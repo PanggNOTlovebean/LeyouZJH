@@ -34,9 +34,15 @@ class PositionConstant():
     # 看牌后 牌型提示位置
     CARD_PROMOTE_POS = [922, 852, 1130, 902]
     
+    #
+    TOT_BET_LABEL = [948, 566, 1007, 605]
+    
     MONEY_BUTTON =  [741, 885, 832, 914]
     # 开始游戏坐标
     START_CLICK_POS = [911, 939]
+    
+    AUTO_POS = [959, 1050]
+    CANCEL_AUTO_POS = [864, 1024]
     
     # 进入体验房
     GO_TIYAN_HOUSE = [1014, 542]
@@ -70,6 +76,8 @@ class PositionConstant():
     LOOK_CLICK_POS = [1044, 837]
     # 加注筹码坐标
     ADD_7_CLICK_POS = [1364, 835]
+    
+    
 
     
     def get_status_enum_by_code(cls, code):
@@ -159,13 +167,20 @@ class GameStatusEnum(Enum):
         raise ValueError("Invalid code")
 
 class MyCardsEnum(Enum):
-    BAOZI = (6, "豹子")
-    TONGHUASHN = (5, "同花顺")
-    AHUA = (4, "A花")
-    KHUA = (3, "K花")
-    QHUA = (2, "Q花")
-    JHUA = (1, "J花")
-    BAD = (0, "垃圾")
+    BAOZI = (11, "豹子")
+    TONGHUASHN_A = (10, "A同花顺")
+    TONGHUASHN_K = (9, "K同花顺")
+    TONGHUASHN_Q = (8, "Q同花顺")
+    TONGHUASHN = (7, "J以下同花顺")
+    AHUA = (6, "A花")
+    KHUA = (5, "K花")
+    QHUA = (4, "Q花")
+    JHUA = (3, "J花")
+    HUA10 = (2, "10花")
+    HUA9 = (1, "9花")
+    SHUNZI = (0, "顺子")
+    DUIZI_A = (-1, "对A")
+    BAD = (-2, "垃圾")
 
     def __init__(self, code, value):
         self._code = code

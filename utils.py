@@ -56,7 +56,14 @@ def judge_my_cards(card_num_list, card_type):
     if card_type == CardsCombEnum.BAOZI:
         return MyCardsEnum.BAOZI
     if card_type == CardsCombEnum.TONGHUASHUN:
-        return MyCardsEnum.TONGHUASHN
+        if 'A' in card_num_list:
+            return MyCardsEnum.TONGHUASHN_A
+        if 'K' in card_num_list:
+            return MyCardsEnum.TONGHUASHN_K
+        if 'Q' in card_num_list:
+            return MyCardsEnum.TONGHUASHN_Q
+        else:
+            return MyCardsEnum.TONGHUASHN
     if card_type == CardsCombEnum.JINHUA:
         if 'A' in card_num_list:
             return MyCardsEnum.AHUA
@@ -66,6 +73,15 @@ def judge_my_cards(card_num_list, card_type):
             return MyCardsEnum.QHUA
         if 'J' in card_num_list:
             return MyCardsEnum.JHUA
+        if '10' in card_num_list:
+            return MyCardsEnum.HUA10
+        if '9' in card_num_list:
+            return MyCardsEnum.HUA9
+    if card_type == CardsCombEnum.SHUNZI:
+        return MyCardsEnum.SHUNZI
+    if card_type == CardsCombEnum.DUIZI:
+        if card_num_list.count('A') >= 2:
+            return MyCardsEnum.DUIZI_A
     return MyCardsEnum.BAD
 
 def read_conf(file_path):

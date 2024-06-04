@@ -32,6 +32,7 @@ def empty_task():
 def ocr(image):
     image = image_padding(image)
     result = ocr_model.ocr(image, cls=True)
+    
     if len(result) == 0 or result[0] == None:
         return "#"
     return result[-1][-1][-1][0]
@@ -189,6 +190,20 @@ class ImageProcessor:
         
         return CardsCombEnum.GAOPAI
     
+    def check_is_auto(self, image):
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+        
+        x, y = PositionConstant.AUTO_POS
+        # print(image[y, x, 0])
+        if (image[y, x, 0] > 100):
+            x, y = PositionConstant.CANCEL_AUTO_POS
+            # print(image[y, x, 1])
+            if image[y, x, 1] > 150:
+                return True
+            return False
+        else:
+            return True
+
     
     def parse_card_num(self, image):
         height, width = image.shape[0], image.shape[1]
@@ -263,7 +278,7 @@ class ImageProcessor:
 
     def ocr_card_number(self, image):
         result = ocr(image)
-        match = re.search(r"\d+$", result)
+        match = re.search(r"\d+", result)
         number = -1
         if match:
             # 获取匹配到的数字
@@ -283,7 +298,20 @@ class ImageProcessor:
         for a in result[-1]:
             ocr_string += a[-1][0]
         return ocr_string
-    
+
+    def get_tot_bet(self, image):
+        x1, y1, x2, y2 = PositionConstant.TOT_BET_LABEL
+        cropped_image = image[y1:y2, x1:x2]
+        cropped_image = image_padding(cropped_image)
+        result = ocr(cropped_image)
+        if (result == '#'):
+            result = self.parse_card_num(cropped_image)
+        if (is_number(result)):
+            return int(result)
+        # plt.imshow(cropped_image)
+        # plt.show()
+        return -1
+        
     def get_money(self, image):
         x1, y1, x2, y2 = PositionConstant.MONEY_BUTTON
         cropped_image = image[y1:y2, x1:x2]
@@ -357,8 +385,8 @@ def main():
     processor = ImageProcessor()
     # for i in range(10):
     # for i in [1]:
-    dir_path = 'test/gamestatus'
-    # dir_path = 'test_run/1717238022'
+    dir_path = 'test/auto'
+    # dir_path = 'test_run/1'
     # dir_path = 'test_run/1702781747'
 
     # 记录开始时间
@@ -369,7 +397,8 @@ def main():
         print(path)
         image = cv2.imread(os.path.join(dir_path, path), cv2.IMREAD_UNCHANGED)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        print(processor.check_game_status(image))
+        print(processor.check_is_auto(image))
+        # print(processor.get_tot_bet(image))
         # print(processor.get_next_bet(image))
         # print(processor.get_round(image))
         # print(processor.get_player_money(image))
