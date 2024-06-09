@@ -1,5 +1,5 @@
 from enum import Enum
-VERSION = '1.41'
+VERSION = '1.46'
 
 class PositionConstant():
     RESOLUTION = (1080, 1920) 
@@ -39,7 +39,7 @@ class PositionConstant():
     
     MONEY_BUTTON =  [741, 885, 832, 914]
     # 开始游戏坐标
-    START_CLICK_POS = [911, 939]
+    START_CLICK_POS = [835, 933]
     
     AUTO_POS = [959, 1050]
     CANCEL_AUTO_POS = [864, 1024]
@@ -71,7 +71,7 @@ class PositionConstant():
     # 加注坐标
     ADD_CLICK_POS = [1145, 1012]
     # 弃牌坐标
-    ABANDON_CLICK_POS = [837, 1012]
+    ABANDON_CLICK_POS = [744, 1051]
     # 看牌坐标
     LOOK_CLICK_POS = [1044, 837]
     # 加注筹码坐标

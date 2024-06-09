@@ -68,6 +68,7 @@ class Window:
     
     def click(self, POS):
         x, y = POS
+        print(f'点击位置: {x}, {y}')
         self.deconsole.touch(self.index, x, y)
         
     def screenshot(self):
