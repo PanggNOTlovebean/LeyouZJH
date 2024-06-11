@@ -29,7 +29,6 @@ class Game:
         self.next_bets = [1 for _ in range(4)]
         self.bets = [1 for _ in range(4)]
         self.add = [0 for _ in range(4)]
-        self.add_in_open = [False for _ in range(4)]
         self.my_next_bet = 1
         self.bet = 1
         self.looked = False
@@ -40,14 +39,9 @@ class Game:
         # 确认是否发现看牌后跟一次注
         self.find_look_flag = False
         self.find_look = [False for _ in range(4)]
-
+        # 判断玩家是否自己看牌加注
+        self.self_look_add = [False for _ in range(4)]
         # 确认是否第一轮加注
-        self.add_fisrt_flag = False
-
-        # 是否中途加注
-        self.mid_add_flag = False
-        
-        self.add_follow_flag = False
         # 玩家是否是对子 
         self.duizi = [False for _ in range(4)]
         self.player_money = [-1 for _ in range(4)]
@@ -125,34 +119,14 @@ class Game:
     def check_pk_win(self):
         return any(self.pk)
 
-    # 判断是否有开局就加注
-    def check_add_in_open(self):
-        flag = any(self.add_in_open)
-        if flag:
-            self.add_in_open = [False for _ in range(4)]
-        return flag
 
-    def check_add_too_much(self):
-        ret = 999
-        for i in range(4):
-            if self.add[i] > 0 and self.add_in_open[i] == False:
-                if self.next_bets[i] > 3:
-                    ret = min(ret, 0)
-                else:
-                    ret = min(ret, 1)
-        self.add_in_open = [False for _ in range(4)]
-        #  中途加注 超过3 返回0 否则返回1 没有中途加注 返回999
-        return ret
-
-    # 判断是否存在看牌加注
+    # 判断是否存在自己看牌加注
     def check_look_add(self):
         for i in range(4):
-            if self.player_status[i] == PlayerStatusEnum.LOOKED and (self.add[i] > 0 or self.next_bets[i] > 2) and self.pk[i] == False:
-                if self.bets[i] <= 3: 
-                    continue
+            if self.player_status[i] == PlayerStatusEnum.LOOKED and self.self_look_add[i] == True:
                 return True
         return False
-    
+
     # def check_look_and_follow(self):
     #     looked = 0
     #     followed = 0
@@ -169,25 +143,6 @@ class Game:
             if self.player_status[i] == PlayerStatusEnum.LOOKED and (self.bets[i] > 2 or self.round > 1) and self.pk[i] == False:
                 self.find_look[i] = True
         return any(self.find_look)
-    
-    # def check_look_up_4(self):
-    #     for i in range(4):
-    #         if self.player_status[i] == PlayerStatusEnum.LOOKED and self.bets[i] > 4:
-    #             return True
-    #     return False
-    
-    # def check_look_up_or_equal_4(self):
-    #     for i in range(4):
-    #         if self.player_status[i] == PlayerStatusEnum.LOOKED and self.bets[i] >= 4:
-    #             return True
-    #     return False
-    
-    # def count_all_win(self):
-    #     tot = 0
-    #     for i in range(4):
-    #         if self.player_status[i] != PlayerStatusEnum.NONE:
-    #             tot += self.bets[i]
-    #     return tot
     
     # 只剩下对子
     def leave_only_duizi(self):
@@ -212,8 +167,11 @@ class Game:
                 continue
             player_money_list[i] = correct_decimal_point(self.player_money[i], player_money_list[i])
         
+        
+        
         # 判断是否存在pK
         for i in range(4):
+            
             if player_status_list[i] == PlayerStatusEnum.NONE:
                 continue
             if (
@@ -227,11 +185,12 @@ class Game:
                     for j in range(4):
                         if (
                             player_status_list[j] == PlayerStatusEnum.LOOKED
-                            and self.player_money[j] >= player_money_list[j]
+                            and self.player_money[j] > player_money_list[j]
                         ):
                             self.pk[j] = True
                             self.duizi[j] = True
-
+                            
+        
         # 判断是否存在加注 更新下注状态
         for i in [3, 2, 0, 1]:
             if (
@@ -240,7 +199,12 @@ class Game:
                 ):
                     # 状态从未看牌切到看牌
                     self.next_bets[i] = 2 * self.next_bets[i]
-                    
+                    # 当前下注成本超过包括自己的所有人，说明自己是看牌后加注
+                    gap = min(self.my_next_bet if player_status_list[i] != PlayerStatusEnum.LOOKED else self.my_next_bet * 2,
+                              int(self.player_money[i] - player_money_list[i]))
+                    if (gap > max(self.next_bets)):
+                        self.self_look_add[i] = True
+            
             if player_status_list[i] == PlayerStatusEnum.NONE:
                 continue
 
@@ -273,7 +237,7 @@ class Game:
                     #     )
 
                 self.bets[i] += gap
-                self.next_bets[i] = gap
+                self.next_bets[i] = max(self.next_bets[i], gap)
             
         for i in range(4):
             self.player_status[i] = player_status_list[i]
@@ -293,6 +257,9 @@ class Game:
                 continue
             
             gap = self.my_next_bet * 2 if self.player_status[i] == PlayerStatusEnum.LOOKED else self.my_next_bet
+            # 如果玩家是看牌 计算他看牌后再下注时总注超过实际总和，则说明他是先跟住再看牌的
+            if self.player_status[i] == PlayerStatusEnum.LOOKED and cur_tot - self.bets[i] + 1 + gap > tot_bet:
+                gap = gap // 2
             cur_tot -= self.bets[i]
             self.bets[i] = 1 + gap
             cur_tot += self.bets[i]
@@ -302,6 +269,21 @@ class Game:
                     self.add[i] += 1 if gap > 2 else 0
                 else:
                     self.add[i] += 1
+        # 修复首轮玩家是否自己是看牌加注状态
+        # 如果遇到第一个加注的，且这个人是看牌，说明他是自己看牌加注
+        
+        # 闷牌最大加注额度
+        max_cost = 1
+        for i in [3, 2, 0, 1]:
+            
+            if self.add[i] < 1:
+                continue
+            else:
+                if self.player_status[i] == PlayerStatusEnum.FOLLOWING:
+                    max_cost = max(max_cost, self.next_bets[i])
+                elif self.player_status[i] == PlayerStatusEnum.LOOKED and self.next_bets[i] > max_cost * 2:
+                    max_cost = self.next_bets[i] // 2
+                    self.self_look_add[i] = True
         print(f'总下注{tot_bet}','=' * 10 +  '首次出牌前修复数据' + '=' * 10 + '\n', self)
         
     def __str__(self):
@@ -390,7 +372,7 @@ class MoneyPrinter:
         
     def get_image(self):
             # List all files in the directory
-        base_dir = "test_run/6"
+        base_dir = "test_run/10"
         filenames = os.listdir(base_dir)
         
         # Sort the filenames to ensure a consistent order
@@ -398,6 +380,7 @@ class MoneyPrinter:
         
         for filename in filenames:
             screenshot_path = os.path.join(base_dir, filename)
+            
             print(screenshot_path)
             image = cv2.imdecode(np.fromfile(screenshot_path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
             # image = cv2.imread(screenshot_path, cv2.IMREAD_UNCHANGED)
@@ -462,6 +445,7 @@ class MoneyPrinter:
                         continue
                     
                 if self.game.check_look_add():
+                    logger.info(f"【触发逻辑】有人看牌加注 直接看牌")
                     self.look_card()
                     continue
                 
